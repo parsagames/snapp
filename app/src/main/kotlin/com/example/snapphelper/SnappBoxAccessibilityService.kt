@@ -71,7 +71,7 @@ class SnappBoxAccessibilityService : AccessibilityService() {
         currentOrderValidUntil = now + AppConfig.ORDER_VALID_MS
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            detectColorAndSpeak(accept, amount, texts)
+            detectColorAndSpeak(accept.node, amount, texts)
         } else {
             speakOrder(amount, OrderColor.UNKNOWN, texts)
         }
