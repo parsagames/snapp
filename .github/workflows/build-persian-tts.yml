@@ -3,7 +3,9 @@ name: Build SnappBox Persian TTS APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
 
 permissions:
   contents: read
@@ -26,20 +28,30 @@ jobs:
         shell: bash
         run: |
           set -e
+
           URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fa_IR-amir-medium.tar.bz2"
+
           mkdir -p app/src/main/assets/tts
-          curl -L --fail --retry 5 "$URL" -o /tmp/persian-tts.tar.bz2
-          tar -xjf /tmp/persian-tts.tar.bz2 -C app/src/main/assets/tts
+
+          curl -L --fail --retry 5 "$URL" \
+            -o /tmp/persian-tts.tar.bz2
+
+          tar -xjf /tmp/persian-tts.tar.bz2 \
+            -C app/src/main/assets/tts
 
           test -f app/src/main/assets/tts/vits-piper-fa_IR-amir-medium/fa_IR-amir-medium.onnx
+
           test -f app/src/main/assets/tts/vits-piper-fa_IR-amir-medium/tokens.txt
+
           test -d app/src/main/assets/tts/vits-piper-fa_IR-amir-medium/espeak-ng-data
 
-      - name: Set up Gradle
+          echo "Persian TTS model downloaded successfully."
+
+      - name: Install Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+        run: gradle :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
