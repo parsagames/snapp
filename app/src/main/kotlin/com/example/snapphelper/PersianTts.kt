@@ -4,80 +4,82 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
-import java.io.File
 import java.util.concurrent.Executors
 
 class PersianTts(private val context: Context) {
-
     private val executor = Executors.newSingleThreadExecutor()
-
-    @Volatile
-    private var initialized = false
-
-    private var tts: OfflineTts? = null
+    @Volatile private var initialized = false
+    @Volatile private var tts: OfflineTts? = null
 
     fun initialize() {
         if (initialized) return
 
-        try {
-            val modelDir = File(context.filesDir, "tts")
-            copyAssetsRecursively("tts", modelDir)
+        synchronized(this) {
+            if (initialized) return
 
-            val model = File(modelDir, "fa_IR-amir-medium.onnx")
-            val tokens = File(modelDir, "tokens.txt")
-            val lexicon = File(modelDir, "lexicon.txt")
+            try {
+                val dir = "tts/vits-piper-fa_IR-amir-medium"
 
-            val config = OfflineTtsConfig(
-                model = OfflineTtsVitsModelConfig(
-                    model = model.absolutePath,
-                    tokens = tokens.absolutePath,
-                    lexicon = lexicon.absolutePath
-                ),
-                numThreads = 2,
-                debug = false,
-                provider = "cpu"
-            )
+                val config = OfflineTtsConfig(
+                    model = OfflineTtsModelConfig(
+                        vits = OfflineTtsVitsModelConfig(
+                            model = "$dir/fa_IR-amir-medium.onnx",
+                            tokens = "$dir/tokens.txt",
+                            dataDir = "$dir/espeak-ng-data"
+                        ),
+                        numThreads = 2,
+                        debug = false,
+                        provider = "cpu"
+                    ),
+                    maxNumSentences = 1
+                )
 
-            tts = OfflineTts(config)
-            initialized = true
-        } catch (e: Exception) {
-            e.printStackTrace()
+                // Use AssetManager: the model lives inside the APK assets.
+                tts = OfflineTts(context.assets, config)
+                initialized = true
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
         }
     }
 
     fun speak(text: String) {
-        if (!initialized) {
-            initialize()
-        }
+        val message = text.trim()
+        if (message.isEmpty()) return
 
+        if (!initialized) initialize()
         val engine = tts ?: return
 
         executor.execute {
             try {
-                val audio = engine.generate(
-                    text = text,
-                    sid = 0,
-                    speed = 1.0f
+                val audio = engine.generateWithConfig(
+                    text = message,
+                    config = GenerationConfig(
+                        sid = 0,
+                        speed = 1.0f,
+                        silenceScale = 0.2f
+                    )
                 )
-
                 playAudio(audio.samples, audio.sampleRate)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 e.printStackTrace()
             }
         }
     }
 
     private fun playAudio(samples: FloatArray, sampleRate: Int) {
-        val pcm = ShortArray(samples.size)
+        if (samples.isEmpty() || sampleRate <= 0) return
 
-        for (i in samples.indices) {
-            val value = (samples[i] * 32767f)
+        val pcm = ShortArray(samples.size) { i ->
+            (samples[i] * 32767f)
                 .coerceIn(-32768f, 32767f)
-
-            pcm[i] = value.toInt().toShort()
+                .toInt()
+                .toShort()
         }
 
         val minBuffer = AudioTrack.getMinBufferSize(
@@ -85,13 +87,9 @@ class PersianTts(private val context: Context) {
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
+        if (minBuffer <= 0) return
 
-        val bufferSize = maxOf(
-            minBuffer,
-            pcm.size * 2
-        )
-
-        val audioTrack = AudioTrack.Builder()
+        val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
@@ -105,59 +103,30 @@ class PersianTts(private val context: Context) {
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
-            .setBufferSizeInBytes(bufferSize)
-            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(maxOf(minBuffer, 8192))
+            .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
-        audioTrack.write(
-            pcm,
-            0,
-            pcm.size
-        )
-
-        audioTrack.play()
-
-        Thread.sleep(
-            ((pcm.size.toLong() * 1000L) / sampleRate) + 200L
-        )
-
-        audioTrack.stop()
-        audioTrack.release()
-    }
-
-    private fun copyAssetsRecursively(
-        assetPath: String,
-        destination: File
-    ) {
-        if (!destination.exists()) {
-            destination.mkdirs()
-        }
-
-        val children = context.assets.list(assetPath)
-
-        if (children.isNullOrEmpty()) {
-            context.assets.open(assetPath).use { input ->
-                destination.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+        try {
+            track.play()
+            var offset = 0
+            while (offset < pcm.size) {
+                val n = track.write(pcm, offset, pcm.size - offset)
+                if (n <= 0) break
+                offset += n
             }
-            return
-        }
-
-        for (child in children) {
-            val childAssetPath = "$assetPath/$child"
-            val childDestination = File(destination, child)
-
-            copyAssetsRecursively(
-                childAssetPath,
-                childDestination
-            )
+            track.stop()
+        } finally {
+            track.release()
         }
     }
 
     fun shutdown() {
         executor.shutdownNow()
-        tts?.release()
-        tts = null
+        synchronized(this) {
+            try { tts?.release() } catch (_: Throwable) {}
+            tts = null
+            initialized = false
+        }
     }
 }
