@@ -19,7 +19,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -30,6 +29,8 @@ class MainActivity : ComponentActivity() {
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var usingFarsi = true
+    private var pendingMessage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,10 +38,9 @@ class MainActivity : ComponentActivity() {
         tts = TextToSpeech(applicationContext) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
             if (ttsReady) {
-                val result = tts?.setLanguage(Locale("fa", "IR"))
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    ttsReady = false
-                }
+                usingFarsi = tts?.let(TtsLanguageHelper::applyBestLanguage) ?: false
+                pendingMessage?.let { speak(it) }
+                pendingMessage = null
             }
         }
 
@@ -227,19 +227,24 @@ class MainActivity : ComponentActivity() {
             startService(intent)
         }
 
-        speak("دستیار صوتی فعال شد")
-        Toast.makeText(this, "دستیار صوتی فعال شد", Toast.LENGTH_SHORT).show()
+        val message = if (usingFarsi) "دستیار صوتی فعال شد" else "Voice assistant activated"
+        speak(message)
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun stopVoiceService() {
         stopService(Intent(this, VoiceCommandService::class.java))
-        speak("دستیار صوتی غیرفعال شد")
-        Toast.makeText(this, "دستیار صوتی غیرفعال شد", Toast.LENGTH_SHORT).show()
+        val message = if (usingFarsi) "دستیار صوتی غیرفعال شد" else "Voice assistant deactivated"
+        speak(message)
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun speak(message: String) {
         if (ttsReady) {
             tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "status")
+        } else {
+            // TTS engine hasn't finished initializing yet - don't drop the message silently.
+            pendingMessage = message
         }
     }
 
