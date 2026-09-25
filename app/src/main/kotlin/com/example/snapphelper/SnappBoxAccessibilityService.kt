@@ -25,6 +25,8 @@ class SnappBoxAccessibilityService : AccessibilityService() {
     private val screenshotExecutor = Executors.newSingleThreadExecutor()
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var usingFarsi = true
+    private var pendingSpeech: (() -> Unit)? = null
     private var lastFingerprint: String? = null
     private var lastEventAt = 0L
     @Volatile private var currentOrderValidUntil = 0L
@@ -39,10 +41,9 @@ class SnappBoxAccessibilityService : AccessibilityService() {
         tts = TextToSpeech(applicationContext) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
             if (ttsReady) {
-                val result = tts?.setLanguage(Locale("fa", "IR"))
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    ttsReady = false
-                }
+                usingFarsi = tts?.let(TtsLanguageHelper::applyBestLanguage) ?: false
+                pendingSpeech?.invoke()
+                pendingSpeech = null
             }
         }
     }
@@ -121,12 +122,22 @@ class SnappBoxAccessibilityService : AccessibilityService() {
     }
 
     private fun speakOrder(amount: String?, pickupAddress: String?, color: OrderColor, texts: List<String>) {
-        val safeAmount = amount ?: "نامشخص"
-        val addressPart = pickupAddress?.let { "، مبدا $it" } ?: ""
-        val message = "سفارش جدید. رنگ دکمه ${color.persian}. مبلغ $safeAmount ریال$addressPart. اگر می‌خواهی قبول شود بگو قبول کن."
-
         VoiceCommandService.pauseRecognitionForTts(3500)
-        if (ttsReady) tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "order")
+
+        val speakNow: () -> Unit = {
+            val message = if (usingFarsi) {
+                val safeAmount = amount ?: "نامشخص"
+                val addressPart = pickupAddress?.let { "، مبدا $it" } ?: ""
+                "سفارش جدید. رنگ دکمه ${color.persian}. مبلغ $safeAmount ریال$addressPart. اگر می‌خواهی قبول شود بگو قبول کن."
+            } else {
+                val safeAmount = amount ?: "unknown"
+                val addressPart = pickupAddress?.let { ", pickup at $it" } ?: ""
+                "New order. Button color ${color.english}. Amount $safeAmount rials$addressPart. Say accept if you want it accepted."
+            }
+            tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "order")
+        }
+
+        if (ttsReady) speakNow() else pendingSpeech = speakNow
     }
 
     fun acceptCurrentOrder(): Boolean {
