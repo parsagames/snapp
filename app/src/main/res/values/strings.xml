@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">دستیار اسنپ‌باکس</string>
+    <string name="accessibility_description">تشخیص سفارش اسنپ‌باکس، خواندن اطلاعات و پذیرش فقط با فرمان صوتی کاربر</string>
+</resources>
