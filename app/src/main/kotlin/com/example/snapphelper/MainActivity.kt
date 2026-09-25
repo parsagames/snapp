@@ -138,15 +138,11 @@ class MainActivity : ComponentActivity() {
         // IMPORTANT: show the UI before touching Sherpa-ONNX.
         setContentView(scrollView)
 
-        // Start TTS only after the first UI frame has been posted.
+        // Do NOT initialize Sherpa-ONNX while opening the app.
+        // The Persian TTS engine is initialized lazily only when speak()
+        // is actually called. This prevents a TTS/model problem from
+        // closing the main screen a few seconds after startup.
         persianTts = PersianTts(this)
-        window.decorView.post {
-            try {
-                persianTts.initialize()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            }
-        }
 
         requestPermissionsIfNeeded()
     }
@@ -257,9 +253,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun speak(message: String) {
+        if (!::persianTts.isInitialized) return
+
         try {
             persianTts.speak(message)
         } catch (e: Throwable) {
+            // TTS must never be able to close the main application.
             e.printStackTrace()
         }
     }
