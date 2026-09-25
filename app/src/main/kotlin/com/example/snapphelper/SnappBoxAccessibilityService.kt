@@ -7,7 +7,6 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.speech.tts.TextToSpeech
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -23,10 +22,7 @@ class SnappBoxAccessibilityService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val screenshotExecutor = Executors.newSingleThreadExecutor()
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
-    private var usingFarsi = true
-    private var pendingSpeech: (() -> Unit)? = null
+    private var persianTts: PersianTts? = null
     private var lastFingerprint: String? = null
     private var lastEventAt = 0L
     @Volatile private var currentOrderValidUntil = 0L
@@ -38,13 +34,8 @@ class SnappBoxAccessibilityService : AccessibilityService() {
         serviceInfo = serviceInfo.apply {
             flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
-        tts = TextToSpeech(applicationContext) { status ->
-            ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) {
-                usingFarsi = tts?.let(TtsLanguageHelper::applyBestLanguage) ?: false
-                pendingSpeech?.invoke()
-                pendingSpeech = null
-            }
+        persianTts = PersianTts(applicationContext).also {
+            it.initialize()
         }
     }
 
@@ -121,23 +112,23 @@ class SnappBoxAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun speakOrder(amount: String?, pickupAddress: String?, color: OrderColor, texts: List<String>) {
-        VoiceCommandService.pauseRecognitionForTts(3500)
+    private fun speakOrder(
+        amount: String?,
+        pickupAddress: String?,
+        color: OrderColor,
+        texts: List<String>
+    ) {
+        VoiceCommandService.pauseRecognitionForTts(8000)
 
-        val speakNow: () -> Unit = {
-            val message = if (usingFarsi) {
-                val safeAmount = amount ?: "نامشخص"
-                val addressPart = pickupAddress?.let { "، مبدا $it" } ?: ""
-                "سفارش جدید. رنگ دکمه ${color.persian}. مبلغ $safeAmount ریال$addressPart. اگر می‌خواهی قبول شود بگو قبول کن."
-            } else {
-                val safeAmount = amount ?: "unknown"
-                val addressPart = pickupAddress?.let { ", pickup at $it" } ?: ""
-                "New order. Button color ${color.english}. Amount $safeAmount rials$addressPart. Say accept if you want it accepted."
-            }
-            tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "order")
-        }
+        val safeAmount = amount ?: "نامشخص"
+        val addressPart = pickupAddress?.let { "، مبدا $it" } ?: ""
 
-        if (ttsReady) speakNow() else pendingSpeech = speakNow
+        val message =
+            "سفارش جدید. رنگ دکمه ${color.persian}. " +
+            "مبلغ $safeAmount ریال$addressPart. " +
+            "اگر می‌خواهی قبول شود بگو قبول کن."
+
+        persianTts?.speak(message)
     }
 
     fun acceptCurrentOrder(): Boolean {
@@ -260,9 +251,8 @@ class SnappBoxAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         instance = null
         mainHandler.removeCallbacksAndMessages(null)
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
+        persianTts?.shutdown()
+        persianTts = null
         screenshotExecutor.shutdownNow()
         super.onDestroy()
     }
