@@ -8,7 +8,6 @@ import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.widget.Button
 import android.widget.ImageView
@@ -27,22 +26,13 @@ class MainActivity : ComponentActivity() {
         private const val REQ_NOTIFICATIONS = 502
     }
 
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
-    private var usingFarsi = true
-    private var pendingMessage: String? = null
+    private lateinit var persianTts: PersianTts
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        tts = TextToSpeech(applicationContext) { status ->
-            ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) {
-                usingFarsi = tts?.let(TtsLanguageHelper::applyBestLanguage) ?: false
-                pendingMessage?.let { speak(it) }
-                pendingMessage = null
-            }
-        }
+        persianTts = PersianTts(this)
+        persianTts.initialize()
 
         val bg = Color.parseColor("#0B1233")
         val textPrimary = Color.parseColor("#FFFFFF")
@@ -227,31 +217,24 @@ class MainActivity : ComponentActivity() {
             startService(intent)
         }
 
-        val message = if (usingFarsi) "دستیار صوتی فعال شد" else "Voice assistant activated"
+        val message = "دستیار صوتی فعال شد"
         speak(message)
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun stopVoiceService() {
         stopService(Intent(this, VoiceCommandService::class.java))
-        val message = if (usingFarsi) "دستیار صوتی غیرفعال شد" else "Voice assistant deactivated"
+        val message = "دستیار صوتی غیرفعال شد"
         speak(message)
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun speak(message: String) {
-        if (ttsReady) {
-            tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "status")
-        } else {
-            // TTS engine hasn't finished initializing yet - don't drop the message silently.
-            pendingMessage = message
-        }
+        persianTts.speak(message)
     }
 
     override fun onDestroy() {
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
+        persianTts.shutdown()
         super.onDestroy()
     }
 }
