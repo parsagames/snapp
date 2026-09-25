@@ -8,15 +8,18 @@ import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -25,8 +28,21 @@ class MainActivity : ComponentActivity() {
         private const val REQ_NOTIFICATIONS = 502
     }
 
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        tts = TextToSpeech(applicationContext) { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady) {
+                val result = tts?.setLanguage(Locale("fa", "IR"))
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    ttsReady = false
+                }
+            }
+        }
 
         val bg = Color.parseColor("#0B1233")
         val textPrimary = Color.parseColor("#FFFFFF")
@@ -210,9 +226,27 @@ class MainActivity : ComponentActivity() {
         } else {
             startService(intent)
         }
+
+        speak("دستیار صوتی فعال شد")
+        Toast.makeText(this, "دستیار صوتی فعال شد", Toast.LENGTH_SHORT).show()
     }
 
     private fun stopVoiceService() {
         stopService(Intent(this, VoiceCommandService::class.java))
+        speak("دستیار صوتی غیرفعال شد")
+        Toast.makeText(this, "دستیار صوتی غیرفعال شد", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun speak(message: String) {
+        if (ttsReady) {
+            tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "status")
+        }
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
+        super.onDestroy()
     }
 }
