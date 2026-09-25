@@ -31,9 +31,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        persianTts = PersianTts(this)
-        persianTts.initialize()
-
+        // Create the screen FIRST. TTS must not be allowed to prevent the
+        // activity UI from appearing if the native TTS/model has a problem.
         val bg = Color.parseColor("#0B1233")
         val textPrimary = Color.parseColor("#FFFFFF")
         val textSecondary = Color.parseColor("#AFB8E8")
@@ -93,7 +92,9 @@ class MainActivity : ComponentActivity() {
             text = "باز کردن تنظیمات دسترس‌پذیری",
             background = R.drawable.bg_button_outline,
             textColor = textPrimary
-        ) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        ) {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
 
         val startButton = actionButton(
             text = "شروع دستیار صوتی",
@@ -134,7 +135,19 @@ class MainActivity : ComponentActivity() {
             addView(layout)
         }
 
+        // IMPORTANT: show the UI before touching Sherpa-ONNX.
         setContentView(scrollView)
+
+        // Start TTS only after the first UI frame has been posted.
+        persianTts = PersianTts(this)
+        window.decorView.post {
+            try {
+                persianTts.initialize()
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+        }
+
         requestPermissionsIfNeeded()
     }
 
@@ -160,11 +173,15 @@ class MainActivity : ComponentActivity() {
         setOnClickListener { onClick() }
     }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private fun requestPermissionsIfNeeded() {
         val audioGranted = Build.VERSION.SDK_INT < 23 ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
 
         if (!audioGranted) {
             ActivityCompat.requestPermissions(
@@ -174,12 +191,17 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
+
         requestNotificationPermissionIfNeeded()
     }
 
     private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (
+            Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(
                 this,
@@ -195,15 +217,19 @@ class MainActivity : ComponentActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
         if (requestCode == REQ_AUDIO) {
             requestNotificationPermissionIfNeeded()
         }
     }
 
     private fun startVoiceServiceFromVisibleActivity() {
-        if (Build.VERSION.SDK_INT >= 23 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
+        if (
+            Build.VERSION.SDK_INT >= 23 &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissionsIfNeeded()
             return
@@ -224,17 +250,28 @@ class MainActivity : ComponentActivity() {
 
     private fun stopVoiceService() {
         stopService(Intent(this, VoiceCommandService::class.java))
+
         val message = "دستیار صوتی غیرفعال شد"
         speak(message)
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun speak(message: String) {
-        persianTts.speak(message)
+        try {
+            persianTts.speak(message)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
     }
 
     override fun onDestroy() {
-        persianTts.shutdown()
+        if (::persianTts.isInitialized) {
+            try {
+                persianTts.shutdown()
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+        }
         super.onDestroy()
     }
 }
